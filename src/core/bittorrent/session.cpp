@@ -208,6 +208,12 @@ Session::Session(QObject *parent)
     configure();
     connect(pref, SIGNAL(changed()), SLOT(configure()));
 
+    // Network configuration monitor
+    connect(&network_manager, SIGNAL(onlineStateChanged(bool)), SLOT(onlineStateChanged(bool)));
+    connect(&network_manager, SIGNAL(  configurationAdded(const QNetworkConfiguration&)), SLOT(networkConfigurationChange(const QNetworkConfiguration&)));
+    connect(&network_manager, SIGNAL(configurationRemoved(const QNetworkConfiguration&)), SLOT(networkConfigurationChange(const QNetworkConfiguration&)));
+    connect(&network_manager, SIGNAL(configurationChanged(const QNetworkConfiguration&)), SLOT(networkConfigurationChange(const QNetworkConfiguration&)));
+
     m_resumeDataTimer->start();
 
     // initialize PortForwarder instance
@@ -498,7 +504,7 @@ void Session::configure()
     const unsigned short newListenPort = pref->getSessionPort();
     if (oldListenPort != newListenPort) {
         qDebug("Session port changes in program preferences: %d -> %d", oldListenPort, newListenPort);
-        setListeningPort(newListenPort);
+        setListeningPort();
     }
 
     // * Save path
@@ -1488,12 +1494,31 @@ void Session::setAppendExtension(bool append)
     }
 }
 
+void Session::onlineStateChanged(const bool online) {
+    Logger* const logger = Logger::instance();
+    logger->addMessage(tr("system network status changed to %1", "e.g: system network status changed to ONLINE").arg(online ? "ONLINE" : "OFFLINE"), Log::INFO);
+}
+
+void Session::networkConfigurationChange(const QNetworkConfiguration& cfg) {
+    Logger* const logger = Logger::instance();
+
+    Preferences* const pref = Preferences::instance();
+    const QString configured_interface_name = pref->getNetworkInterface();
+
+    const QString changed_interface = cfg.name();
+    if (configured_interface_name.isEmpty() || configured_interface_name==changed_interface) {
+        logger->addMessage(tr("network configuration of %1 has changed, refreshing session binding", "e.g: network configuration of tun0 has changed, refreshing session binding").arg(changed_interface), Log::INFO);
+        setListeningPort();
+    }
+}
+
 // Set the ports range in which is chosen the port
 // the BitTorrent session will listen to
-void Session::setListeningPort(int port)
+void Session::setListeningPort()
 {
-    qDebug() << Q_FUNC_INFO << port;
     Preferences* const pref = Preferences::instance();
+    const unsigned short port = pref->getSessionPort();
+    qDebug() << Q_FUNC_INFO << port;
     Logger* const logger = Logger::instance();
 
     std::pair<int,int> ports(port, port);
